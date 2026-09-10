@@ -1,221 +1,225 @@
-# BurnNote 🔥
+# 🔥 BurnNote
+### Notas cifradas de un solo uso con destrucción automática
+*Self-hosted, zero-knowledge one-time notes — Share it once. Then it's gone.*
 
-> **Self-hosted, encrypted one-time notes with password protection and automatic destruction.**  
-> *Share it once. Then it's gone.*
-
----
-
-## 1. Overview
-
-**BurnNote** is a privacy-first, self-hosted web application designed to securely transfer sensitive information—such as temporary passwords, private API keys, recovery seeds, configuration secrets, and confidential messages—through **one-time, self-destructing links**.
-
-Inspired by Privnote, BurnNote is engineered from the ground up for self-hosters with a **Zero-Knowledge cryptographic architecture**:
-* The server **never sees** your plaintext note.
-* The server **never sees** your password.
-* Notes are **atomically destroyed** after a single successful reading.
-* If an incorrect password is entered, the note is **instantly and permanently destroyed** to prevent brute-force attacks.
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Built with SvelteKit](https://img.shields.io/badge/Built%20with-SvelteKit-FF3E00?logo=svelte&logoColor=white)](https://kit.svelte.dev/)
+[![Crypto: AES-256-GCM](https://img.shields.io/badge/Crypto-AES--256--GCM%20%7C%20PBKDF2-orange)](https://developer.mozilla.org/en-US/docs/Web/API/SubtleCrypto)
+[![Zero Knowledge](https://img.shields.io/badge/Architecture-Zero--Knowledge-black)](https://en.wikipedia.org/wiki/Zero-knowledge_proof)
 
 ---
 
-## 2. Security & Cryptographic Model
+![BurnNote Screenshot](Image.png)
 
-### True End-to-End Encryption (E2EE)
+---
 
-All cryptographic operations occur **entirely in the user's browser** via the hardware-accelerated Web Crypto API:
+## 🇪🇸 Español
 
-```text
-CREATOR BROWSER
+### ¿Qué es BurnNote?
+
+**BurnNote** es una aplicación web autoalojada para compartir secretos de forma segura: contraseñas temporales, claves API, tokens de recuperación, mensajes confidenciales...
+
+Cada nota se destruye automáticamente tras ser leída **una única vez**. Si alguien introduce una contraseña incorrecta, la nota se elimina de forma inmediata e irreversible. El servidor **nunca ve** tu contenido ni tu contraseña — todo se cifra y descifra directamente en el navegador.
+
+---
+
+### 🚀 Uso (Windows)
+
+#### 1. Iniciar BurnNote
+
+Haz doble clic en **`BurnNote.vbs`** desde la carpeta del proyecto.
+
+- Aparecerá una **ventana de carga** negra con una barra animada mientras el servidor arranca y se establece el túnel público.
+- La ventana se cierra sola cuando todo está listo.
+- El navegador se abre automáticamente con BurnNote.
+
+> No necesitas abrir ninguna terminal. Todo sucede en segundo plano.
+
+#### 2. Crear una nota secreta
+
+1. Escribe o pega tu contenido secreto en el campo **SECRET CONTENT**.
+2. Introduce una contraseña en el campo **PASSWORD**, o pulsa **GENERATE** para crear una segura automáticamente.
+3. Elige cuánto tiempo debe vivir la nota: 10 minutos, 1 hora, 24 horas o 7 días.
+4. (Opcional) Activa **BURN ON WRONG PASSWORD** para destruir la nota si alguien introduce una contraseña incorrecta.
+5. Pulsa **CREATE BURNNOTE →**.
+
+#### 3. Compartir la nota
+
+Tras crear la nota, verás:
+
+- 🔗 **ONE-TIME LINK** — el enlace único que debes enviar al destinatario.
+- 🔑 **PASSWORD** — la contraseña que necesita para descifrarla.
+
+> ⚠️ **Guarda ambos ahora.** Una vez que el destinatario abra el enlace, la nota desaparece para siempre. Tú tampoco podrás volver a verla.
+
+Envía el enlace por un canal (ej. email) y la contraseña por otro (ej. SMS o Signal) para mayor seguridad.
+
+#### 4. Leer una nota recibida
+
+1. Abre el enlace en el navegador.
+2. Introduce la contraseña en el campo que aparece.
+3. Pulsa **UNLOCK & DESTROY →**.
+4. La nota se descifra en tu navegador y se elimina del servidor al instante.
+
+#### 5. Detener BurnNote
+
+Haz doble clic en **`Detener-BurnNote.bat`** para parar el servidor y el túnel limpiamente.
+
+---
+
+### 🔐 Arquitectura de Seguridad
+
+BurnNote usa cifrado **Zero-Knowledge de extremo a extremo**. El servidor almacena únicamente texto cifrado y hashes — nunca el contenido real ni la contraseña.
+
+```
+NAVEGADOR DEL CREADOR
    │
-   ├─► Plaintext Secret + Password
-   │
-   ├─► PBKDF2-HMAC-SHA-256 (600,000 iterations, 128-bit CSPRNG salt)
-   │     ├─► K_enc  (256 bits for AES-256-GCM encryption)
-   │     └─► K_auth (256 bits authentication verifier)
-   │
-   ├─► AES-256-GCM Encrypt(Plaintext, K_enc, 96-bit IV)
-   │     └─► Ciphertext + 128-bit Authentication Tag
-   │
-   └─► Sends to Server:
-         - SHA-256(token)
-         - Ciphertext, IV, Tag, Salt
-         - SHA-256(K_auth)  <-- Never the raw password or K_auth
+   ├─► Texto secreto + Contraseña
+   ├─► PBKDF2-HMAC-SHA-256 (600.000 iteraciones, salt CSPRNG 128-bit)
+   │     ├─► K_enc  → cifrado AES-256-GCM
+   │     └─► K_auth → verificador de autenticación
+   ├─► AES-256-GCM Encrypt(Texto, K_enc, IV de 96 bits)
+   └─► Envía al servidor: SHA-256(token) + Ciphertext + IV + Tag + Salt + SHA-256(K_auth)
+
+SERVIDOR BURNNOTE
+   ├─► Almacena solo texto cifrado y hashes
+   └─► Al recibir intento de lectura:
+         ├── Contraseña INCORRECTA → DELETE inmediato + 404
+         └── Contraseña CORRECTA  → DELETE atómico + devuelve ciphertext
+
+NAVEGADOR DEL DESTINATARIO
+   └─► AES-256-GCM Decrypt → texto plano (nunca sale del navegador)
 ```
 
-```text
-RECIPIENT BROWSER
-   │
-   ├─► Opens /n/[token]
-   ├─► Fetches public salt from server
-   ├─► User inputs Password
-   ├─► Computes K_auth via PBKDF2(Password, Salt)
-   │
-   ├─► Sends K_auth to /api/notes/[token]/consume
-   │
-   ▼
-BURNNOTE SERVER (Atomic Transaction)
-   │
-   ├─► Compares SHA-256(K_auth) with stored auth_hash (timingSafeEqual)
-   │     │
-   │     ├── MISMATCH:
-   │     │     ├─► DELETE FROM notes WHERE id = ? (INSTANT BURN)
-   │     │     └─► Returns generic 404: "This BurnNote is no longer available."
-   │     │
-   │     └── MATCH:
-   │           ├─► DELETE FROM notes WHERE id = ? (ATOMIC CONSUMPTION)
-   │           └─► Returns Ciphertext, IV, Tag, Salt
-   │
-   ▼
-RECIPIENT BROWSER
-   │
-   └─► AES-256-GCM Decrypt(Ciphertext, K_enc, IV, Tag)
-         └─► Plaintext displayed safely as text inside <pre>
+**Primitivas criptográficas:**
+| Algoritmo | Uso |
+|---|---|
+| `AES-256-GCM` | Cifrado autenticado del contenido |
+| `PBKDF2-HMAC-SHA-256` | Derivación de claves (600.000 iter.) |
+| `SHA-256` | Hash de tokens y verificadores |
+| `crypto.getRandomValues` | CSPRNG para IVs, salts y tokens |
+| `crypto.timingSafeEqual` | Comparación sin vulnerabilidades timing |
+
+---
+
+### 🛡️ Modelo de Amenazas
+
+**BurnNote protege contra:**
+- 🗄️ **Robo de base de datos** — Solo hay ciphertext. Sin password, es basura.
+- 🕵️ **Servidor comprometido** — El operador nunca puede leer las notas.
+- 🔗 **Adivinación de URLs** — Tokens de 256 bits de entropía hacen imposible el ataque por fuerza bruta.
+- 🔁 **Reutilización** — Cada nota solo puede leerse una vez.
+- 🔓 **Fuerza bruta de contraseña** — PBKDF2 con 600.000 iteraciones ralentiza los ataques masivamente; activar "Burn on wrong password" los elimina por completo.
+
+**Limitaciones:**
+- ⚠️ Si el destinatario comparte su pantalla o un keylogger está activo, el contenido queda expuesto.
+- ⚠️ El túnel público (Cloudflare/localtunnel) añade un intermediario de red — úsalo solo en redes de confianza para contenido muy sensible, o despliega con dominio propio.
+
+---
+
+### 📁 Estructura del proyecto
+
+```
+burnnote/
+├── BurnNote.vbs              ← Lanzador silencioso (doble clic para iniciar)
+├── Detener-BurnNote.bat      ← Para el servidor limpiamente
+├── scripts/
+│   ├── splash.hta            ← Ventana de carga (se abre automáticamente)
+│   └── start-with-tunnel.js  ← Servidor + túnel Cloudflare/localtunnel
+├── src/
+│   ├── lib/
+│   │   ├── crypto/
+│   │   │   └── noteCrypto.js ← Toda la criptografía (AES-256-GCM, PBKDF2)
+│   │   └── server/
+│   │       ├── db.js         ← Base de datos SQLite (better-sqlite3)
+│   │       └── ratelimit.js  ← Protección contra fuerza bruta
+│   └── routes/
+│       ├── +page.svelte      ← Página de creación de notas
+│       ├── n/[token]/
+│       │   └── +page.svelte  ← Página de lectura de notas
+│       └── api/notes/        ← API REST (create, status, consume)
+├── data/
+│   └── burnnote.db           ← Base de datos SQLite (creada automáticamente)
+└── build/                    ← Build de producción (generado por npm run build)
 ```
 
-### Cryptographic Primitives
-* **Symmetric Cipher**: `AES-256-GCM` (authenticated encryption, prevents tampering).
-* **Key Derivation**: `PBKDF2` with `HMAC-SHA-256` and **600,000 iterations** (OWASP recommended standard).
-* **Randomness**: Web Crypto / Node CSPRNG (`crypto.getRandomValues`).
-* **Tokens**: 256 bits of entropy (64 hex characters). The raw token is **never stored** in the database; only `SHA-256(token)` is indexed.
-* **Timing-Safe Comparison**: `crypto.timingSafeEqual` prevents side-channel timing attacks.
+---
+
+## 🇬🇧 English
+
+### What is BurnNote?
+
+**BurnNote** is a self-hosted web app to securely share sensitive data: temporary passwords, API keys, private tokens, confidential messages...
+
+Each note self-destructs after being read **exactly once**. If a wrong password is entered, the note is permanently and immediately deleted. The server **never sees** your content or your password — everything is encrypted and decrypted entirely in the browser.
 
 ---
 
-## 3. Threat Model
+### 🚀 Usage (Windows)
 
-### What BurnNote Protects Against
-* **Database Leaks / Compromised Storage**: The database only stores ciphertext and salted hashes. Even with full access to the SQLite file, an attacker cannot read the notes without the link token and password.
-* **Server Operator Snooping**: Encryption and decryption occur strictly inside client browsers.
-* **Token Guessing**: 256-bit entropy tokens make URL guessing statistically impossible.
-* **Brute-Force Password Guessing**: By default, entering the wrong password **permanently destroys the note immediately**.
-* **Race Conditions & Concurrency**: Atomic SQLite write transactions guarantee that two simultaneous requests can never both retrieve the same note.
-* **Information Leakage via Error Messages**: Expired, missing, consumed, or burned notes all return the exact same generic response: *"This BurnNote is no longer available."*
-* **XSS Payloads**: Note content is rendered strictly as plain text (`<pre>{note}</pre>`). No HTML parsing is ever performed.
-* **Log Leakage**: Plaintext secrets, raw passwords, and raw tokens are excluded from application logs.
+#### 1. Start BurnNote
 
-### What BurnNote Cannot Protect Against
-* **Compromised Endpoints**: Malware, keyloggers, or malicious browser extensions on the creator's or recipient's machine.
-* **Recipients Taking Copies**: Screenshots, photographs, copy-pasting, or saving the decrypted text once unlocked.
-* **Compromised Transport without HTTPS**: If deployed over unencrypted HTTP over the public internet, adversaries on the local network could intercept tokens. **Always deploy behind HTTPS / TLS in production.**
-* **Forensic Physical Drive Recovery**: Application-level deletion marks database pages as free in SQLite; forensic recovery of magnetic/solid-state media is out of scope for application software.
+Double-click **`BurnNote.vbs`** in the project folder.
 
----
+- A black **loading window** appears while the server boots and a public tunnel is established.
+- The window closes automatically when everything is ready.
+- Your browser opens BurnNote automatically.
 
-## 4. Self-Hosting & Deployment
+> No terminal required. Everything runs silently in the background.
 
-BurnNote is designed to run entirely locally without requiring port-forwarding or exposing your home IP address.
+#### 2. Create a secret note
 
-### Option A: Docker Compose (Recommended)
+1. Type or paste your secret in the **SECRET CONTENT** field.
+2. Enter a password, or click **GENERATE** to create a strong one automatically.
+3. Choose an expiration: 10 minutes, 1 hour, 24 hours, or 7 days.
+4. (Optional) Enable **BURN ON WRONG PASSWORD** to destroy the note on any failed attempt.
+5. Click **CREATE BURNNOTE →**.
 
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/alfredgabriel/BurnNote.git
-   cd BurnNote
-   ```
+#### 3. Share the note
 
-2. Configure environment variables:
-   ```bash
-   cp .env.example .env
-   ```
+After creation you'll see:
+- 🔗 **ONE-TIME LINK** — send this to the recipient.
+- 🔑 **PASSWORD** — share this separately (different channel).
 
-3. Launch the container:
-   ```bash
-   docker compose up -d
-   ```
+> ⚠️ **Save both now.** Once the recipient opens the link, the note is gone forever — including for you.
 
-The application will be accessible at `http://localhost:3000`. SQLite data persists in the `./data` directory.
+#### 4. Read a received note
+
+1. Open the link in a browser.
+2. Enter the password.
+3. Click **UNLOCK & DESTROY →**.
+4. The note decrypts locally and is deleted from the server immediately.
+
+#### 5. Stop BurnNote
+
+Double-click **`Detener-BurnNote.bat`** to cleanly stop the server and tunnel.
 
 ---
 
-### Option B: Remote Access via Cloudflare Tunnel (Zero Port-Forwarding)
+### 🛠️ Development
 
-You do **not** need a static public IP or router port-forwarding to securely access your BurnNote instance remotely:
+#### Prerequisites
+- [Node.js](https://nodejs.org/) v18+
 
-1. Install `cloudflared` on your host:
-   ```bash
-   # Debian / Ubuntu
-   sudo apt-get install cloudflared
-   ```
-
-2. Authenticate and create a tunnel:
-   ```bash
-   cloudflared tunnel login
-   cloudflared tunnel create burnnote
-   ```
-
-3. Route traffic to your BurnNote local container (`http://localhost:3000`):
-   ```yaml
-   # ~/.cloudflared/config.yml
-   tunnel: <TUNNEL_UUID>
-   credentials-file: /root/.cloudflared/<TUNNEL_UUID>.json
-   ingress:
-     - hostname: notes.yourdomain.com
-       service: http://localhost:3000
-     - service: http_status:404
-   ```
-
-4. Run the tunnel:
-   ```bash
-   cloudflared tunnel run burnnote
-   ```
-
-Cloudflare provides end-to-end HTTPS with automatic certificates without exposing your home IP.
-
----
-
-### Option C: Manual Node.js Development
-
-Requirements: Node.js 20+ (Node 22 recommended)
-
+#### Install & Run (dev mode)
 ```bash
-# Install dependencies
 npm install
-
-# Run automated tests
-npm test
-
-# Start development server
 npm run dev
-
-# Build and run production bundle
-npm run build
-node build
 ```
 
----
+#### Build for production
+```bash
+npm run build
+```
+> The `build/` folder is created. `BurnNote.vbs` uses this automatically.
 
-## 5. Configuration & Environment Variables
-
-| Variable | Default | Description |
-| :--- | :--- | :--- |
-| `NODE_ENV` | `production` | Environment mode (`production` / `development`) |
-| `PORT` | `3000` | Port for the HTTP server |
-| `ORIGIN` | `http://localhost:3000` | Allowed origin for CSRF validation |
-| `DATABASE_PATH` | `./data/burnnote.db` | Filesystem path to the SQLite database |
-| `RATE_LIMIT_WINDOW_MS` | `60000` | Sliding window in milliseconds (1 minute) |
-| `RATE_LIMIT_MAX_REQUESTS` | `30` | Maximum allowed requests per IP in the window |
-| `CLEANUP_INTERVAL_MS` | `300000` | Interval for purging expired notes (5 minutes) |
-
----
-
-## 6. Automated Testing
-
-The automated test suite verifies all cryptographic operations, SQLite transactions, concurrency, and security attack vectors:
-
+#### Run tests
 ```bash
 npm test
 ```
 
-Test coverage includes:
-* 256-bit CSPRNG token entropy
-* AES-256-GCM encryption & decryption correctness
-* Atomic one-time access verification (cannot read twice)
-* Burn-on-incorrect-password instant destruction
-* Expiration enforcement and background sweeping
-* 10-way simultaneous race condition simulation
-* XSS payload isolation and SQL injection resistance
-
 ---
 
-## 7. License
+## 📜 License
 
-MIT License &copy; 2026 BurnNote Contributors.
+Distributed under the **MIT License**. See `LICENSE` for details.

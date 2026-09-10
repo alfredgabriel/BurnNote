@@ -1,22 +1,18 @@
 <script>
 	import { encryptNote, generateSecurePassword } from '$lib/crypto/noteCrypto.js';
-	import NoteCreatedCard from '$lib/components/NoteCreatedCard.svelte';
-	import SecurityBadge from '$lib/components/SecurityBadge.svelte';
 
 	let content = $state('');
 	let password = $state('');
 	let showPassword = $state(false);
-	let expiresInSeconds = $state(86400); // 24 hours default
+	let expiresInSeconds = $state(86400);
 	let burnOnFailedAttempt = $state(true);
-
 	let isSubmitting = $state(false);
 	let errorMessage = $state('');
 
-	// Created note state
 	let createdNoteUrl = $state('');
 	let createdPassword = $state('');
-	let copySuccess = $state(false);
-	let copyPasswordSuccess = $state(false);
+	let copyLinkDone = $state(false);
+	let copyPassDone = $state(false);
 
 	function generatePassword() {
 		password = generateSecurePassword(20);
@@ -28,236 +24,233 @@
 		errorMessage = '';
 
 		if (!content.trim()) {
-			errorMessage = 'Please enter the sensitive note content.';
+			errorMessage = 'ERR: Note content is empty.';
 			return;
 		}
-
-		if (!password) {
-			errorMessage = 'A password is required to encrypt your BurnNote.';
+		if (!password || password.length < 1) {
+			errorMessage = 'ERR: Password is required.';
 			return;
 		}
 
 		isSubmitting = true;
-
 		try {
-			// Client-side Zero-Knowledge encryption:
-			// Plaintext and password never leave the browser!
-			const encryptedPkg = await encryptNote(content, password);
+			const pkg = await encryptNote(content, password);
 
-			const response = await fetch('/api/notes/create', {
+			const res = await fetch('/api/notes/create', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
-					tokenHash: encryptedPkg.tokenHash,
-					encryptedContent: encryptedPkg.encryptedContent,
-					iv: encryptedPkg.iv,
-					authTag: encryptedPkg.authTag,
-					salt: encryptedPkg.salt,
-					authHash: encryptedPkg.authHash,
+					tokenHash: pkg.tokenHash,
+					encryptedContent: pkg.encryptedContent,
+					iv: pkg.iv,
+					authTag: pkg.authTag,
+					salt: pkg.salt,
+					authHash: pkg.authHash,
 					expiresInSeconds: Number(expiresInSeconds),
 					burnOnFailedAttempt
 				})
 			});
 
-			const data = await response.json();
-
-			if (!response.ok) {
-				throw new Error(data.error || 'Failed to create note');
+			let data = {};
+			const text = await res.text();
+			if (text) {
+				try { data = JSON.parse(text); } catch { /* ignore */ }
 			}
 
-			// Generate full one-time URL
-			const baseUrl = window.location.origin;
-			createdNoteUrl = `${baseUrl}/n/${encryptedPkg.token}`;
-			createdPassword = password;
+			if (!res.ok) {
+				throw new Error(data.error || `Server error ${res.status}`);
+			}
 
-			// Wipe plaintext content from memory/state
+			createdNoteUrl = `${window.location.origin}/n/${pkg.token}`;
+			createdPassword = password;
 			content = '';
 			password = '';
 		} catch (err) {
-			errorMessage = err.message || 'An error occurred while creating your BurnNote.';
+			errorMessage = `ERR: ${err.message}`;
 		} finally {
 			isSubmitting = false;
 		}
 	}
 
-	async function copyToClipboard(text, isPassword = false) {
+	async function copy(text, isPass = false) {
 		try {
 			await navigator.clipboard.writeText(text);
-			if (isPassword) {
-				copyPasswordSuccess = true;
-				setTimeout(() => (copyPasswordSuccess = false), 2500);
-			} else {
-				copySuccess = true;
-				setTimeout(() => (copySuccess = false), 2500);
-			}
-		} catch {
-			// Fallback if clipboard API not available
-		}
+			if (isPass) { copyPassDone = true; setTimeout(() => copyPassDone = false, 2000); }
+			else { copyLinkDone = true; setTimeout(() => copyLinkDone = false, 2000); }
+		} catch {}
 	}
 
-	function resetForm() {
+	function reset() {
 		createdNoteUrl = '';
 		createdPassword = '';
-		content = '';
-		password = '';
 		errorMessage = '';
 	}
 </script>
 
-{#if !createdNoteUrl}
-	<!-- Note Creation Interface -->
-	<div class="space-y-6">
-		<div class="text-center space-y-2">
-			<h1 class="text-3xl sm:text-4xl font-extrabold tracking-tight text-white">
-				Share it once. <span class="text-transparent bg-clip-text bg-gradient-to-r from-orange-400 to-amber-500">Then it's gone.</span>
-			</h1>
-			<p class="text-zinc-400 text-sm sm:text-base max-w-lg mx-auto">
-				Zero-knowledge, self-destructing notes. One link. One password. One read.
+<!-- ─── CREATED STATE ─── -->
+{#if createdNoteUrl}
+<div style="margin-top:2rem;">
+	<div style="border:2px solid #fff;padding:2rem;margin-bottom:1rem;">
+		<p style="font-size:11px;color:#888;letter-spacing:0.1em;margin:0 0 1.5rem;">// NOTE CREATED · SHARE THESE DETAILS</p>
+
+		<label style="display:block;font-size:11px;color:#555;letter-spacing:0.08em;margin-bottom:6px;">ONE-TIME LINK</label>
+		<div style="display:flex;gap:8px;margin-bottom:1.5rem;">
+			<input
+				readonly
+				value={createdNoteUrl}
+				style="flex:1;background:#0a0a0a;border:1px solid #333;color:#fff;padding:10px 12px;font-family:inherit;font-size:12px;min-width:0;outline:none;"
+			/>
+			<button
+				type="button"
+				onclick={() => copy(createdNoteUrl, false)}
+				style="background:{copyLinkDone ? '#fff' : '#000'};color:{copyLinkDone ? '#000' : '#fff'};border:1px solid #fff;padding:10px 16px;cursor:pointer;font-family:inherit;font-size:11px;letter-spacing:0.08em;white-space:nowrap;transition:background 0.1s;"
+			>
+				{copyLinkDone ? 'COPIED' : 'COPY'}
+			</button>
+		</div>
+
+		<label style="display:block;font-size:11px;color:#555;letter-spacing:0.08em;margin-bottom:6px;">PASSWORD</label>
+		<div style="display:flex;gap:8px;margin-bottom:1.5rem;">
+			<input
+				readonly
+				value={createdPassword}
+				style="flex:1;background:#0a0a0a;border:1px solid #333;color:#fff;padding:10px 12px;font-family:inherit;font-size:12px;min-width:0;outline:none;"
+			/>
+			<button
+				type="button"
+				onclick={() => copy(createdPassword, true)}
+				style="background:{copyPassDone ? '#fff' : '#000'};color:{copyPassDone ? '#000' : '#fff'};border:1px solid #fff;padding:10px 16px;cursor:pointer;font-family:inherit;font-size:11px;letter-spacing:0.08em;white-space:nowrap;transition:background 0.1s;"
+			>
+				{copyPassDone ? 'COPIED' : 'COPY'}
+			</button>
+		</div>
+
+		<div style="border:1px solid #333;padding:1rem;margin-bottom:1.5rem;">
+			<p style="margin:0;font-size:11px;color:#888;line-height:1.6;">
+				! SAVE THE LINK AND PASSWORD NOW.<br/>
+				After anyone reads it (or enters the wrong password), the note is gone forever.
 			</p>
 		</div>
 
-		{#if errorMessage}
-			<div class="p-4 rounded-xl bg-red-950/40 border border-red-800/60 text-red-300 text-sm flex items-center gap-3">
-				<svg class="w-5 h-5 flex-shrink-0 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-				</svg>
-				<span>{errorMessage}</span>
+		<button
+			type="button"
+			onclick={reset}
+			style="background:#000;color:#555;border:1px solid #333;padding:10px 16px;cursor:pointer;font-family:inherit;font-size:11px;letter-spacing:0.08em;width:100%;"
+		>
+			← CREATE ANOTHER NOTE
+		</button>
+	</div>
+</div>
+
+<!-- ─── CREATE STATE ─── -->
+{:else}
+<div style="margin-top:2rem;">
+	<h1 style="font-size:1.5rem;font-weight:700;letter-spacing:0.04em;margin:0 0 0.25rem;">SEND A SECRET.</h1>
+	<p style="font-size:12px;color:#666;margin:0 0 2rem;letter-spacing:0.05em;">ONE LINK. ONE READ. THEN IT'S GONE.</p>
+
+	{#if errorMessage}
+	<div style="border:1px solid #ff3333;padding:12px 16px;margin-bottom:1.5rem;font-size:12px;color:#ff3333;">
+		{errorMessage}
+	</div>
+	{/if}
+
+	<form onsubmit={handleCreate}>
+
+		<!-- Note Content -->
+		<div style="margin-bottom:1.5rem;">
+			<label for="secret-content" style="display:block;font-size:11px;color:#555;letter-spacing:0.1em;margin-bottom:6px;">
+				SECRET CONTENT
+			</label>
+			<textarea
+				id="secret-content"
+				bind:value={content}
+				rows="8"
+				placeholder="Paste your secret here..."
+				required
+				style="width:100%;background:#0a0a0a;border:1px solid #333;color:#fff;padding:12px;font-family:inherit;font-size:13px;resize:vertical;outline:none;display:block;box-sizing:border-box;"
+				onfocus={(e) => e.target.style.borderColor='#fff'}
+				onblur={(e) => e.target.style.borderColor='#333'}
+			></textarea>
+		</div>
+
+		<!-- Password -->
+		<div style="margin-bottom:1.5rem;">
+			<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+				<label for="note-password" style="font-size:11px;color:#555;letter-spacing:0.1em;">PASSWORD</label>
+				<button
+					type="button"
+					onclick={generatePassword}
+					style="background:none;border:none;color:#fff;cursor:pointer;font-family:inherit;font-size:11px;letter-spacing:0.08em;padding:0;text-decoration:underline;"
+				>
+					GENERATE
+				</button>
 			</div>
-		{/if}
-
-		<form onsubmit={handleCreate} class="bg-[#121215] border border-zinc-800/80 rounded-2xl p-6 sm:p-8 shadow-2xl shadow-black/50 space-y-6">
-			<!-- Secret Content Textarea -->
-			<div class="space-y-2">
-				<div class="flex items-center justify-between">
-					<label for="secret-content" class="text-xs font-semibold uppercase tracking-wider text-zinc-400">
-						Secret Content
-					</label>
-					<span class="text-xs text-zinc-500">Client-side encrypted (AES-256-GCM)</span>
-				</div>
-				<div class="relative">
-					<textarea
-						id="secret-content"
-						bind:value={content}
-						rows="7"
-						placeholder="Write your secret here (passwords, private keys, API credentials, sensitive notes)..."
-						class="w-full bg-[#18181b] border border-zinc-800 rounded-xl px-4 py-3 text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500/50 transition duration-150 font-mono resize-y min-h-[140px]"
-						required
-					></textarea>
-				</div>
-			</div>
-
-			<!-- Password & Expiration Grid -->
-			<div class="grid grid-cols-1 sm:grid-cols-2 gap-6">
-				<!-- Password Input -->
-				<div class="space-y-2">
-					<div class="flex items-center justify-between">
-						<label for="note-password" class="text-xs font-semibold uppercase tracking-wider text-zinc-400">
-							Password <span class="text-orange-400">*</span>
-						</label>
-						<button
-							type="button"
-							onclick={generatePassword}
-							class="text-xs text-orange-400 hover:text-orange-300 transition-colors font-medium cursor-pointer"
-						>
-							&plus; Generate strong
-						</button>
-					</div>
-					<div class="relative">
-						<input
-							id="note-password"
-							type={showPassword ? 'text' : 'password'}
-							bind:value={password}
-							placeholder="Recipient password..."
-							class="w-full bg-[#18181b] border border-zinc-800 rounded-xl pl-4 pr-11 py-2.5 text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500/50 transition font-mono"
-							required
-						/>
-						<button
-							type="button"
-							onclick={() => (showPassword = !showPassword)}
-							class="absolute inset-y-0 right-0 pr-3.5 flex items-center text-zinc-500 hover:text-zinc-300 transition-colors cursor-pointer"
-							title={showPassword ? 'Hide password' : 'Show password'}
-						>
-							{#if showPassword}
-								<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l18 18" />
-								</svg>
-							{:else}
-								<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-								</svg>
-							{/if}
-						</button>
-					</div>
-				</div>
-
-				<!-- Expiration Selector -->
-				<div class="space-y-2">
-					<label for="note-expiration" class="text-xs font-semibold uppercase tracking-wider text-zinc-400">
-						Self-Destruct Lifetime
-					</label>
-					<div class="relative">
-						<select
-							id="note-expiration"
-							bind:value={expiresInSeconds}
-							class="w-full bg-[#18181b] border border-zinc-800 rounded-xl px-4 py-2.5 text-sm text-zinc-100 focus:outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500/50 transition appearance-none cursor-pointer"
-						>
-							<option value={600}>10 minutes</option>
-							<option value={3600}>1 hour</option>
-							<option value={86400}>24 hours (Recommended)</option>
-							<option value={604800}>7 days</option>
-						</select>
-						<div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3.5 text-zinc-500">
-							<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
-							</svg>
-						</div>
-					</div>
-				</div>
-			</div>
-
-			<!-- Advanced Security Options -->
-			<div class="pt-2 border-t border-zinc-800/60 flex items-center justify-between">
-				<div class="flex items-center gap-3">
+			<!-- Use text type always, manual show/hide to avoid browser double-icon -->
+			<input
+				id="note-password"
+				type={showPassword ? 'text' : 'password'}
+				bind:value={password}
+				placeholder="Type or generate a password..."
+				required
+				autocomplete="new-password"
+				style="width:100%;background:#0a0a0a;border:1px solid #333;color:#fff;padding:12px;font-family:inherit;font-size:13px;outline:none;display:block;box-sizing:border-box;-webkit-text-security:{showPassword ? 'none' : 'disc'};"
+				onfocus={(e) => e.target.style.borderColor='#fff'}
+				onblur={(e) => e.target.style.borderColor='#333'}
+			/>
+			<div style="margin-top:8px;">
+				<label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:11px;color:#555;letter-spacing:0.05em;">
 					<input
 						type="checkbox"
-						id="burn-failed"
-						bind:checked={burnOnFailedAttempt}
-						class="w-4 h-4 rounded bg-zinc-800 border-zinc-700 text-orange-500 focus:ring-orange-500/40 focus:ring-offset-0 cursor-pointer"
+						bind:checked={showPassword}
+						style="cursor:pointer;"
 					/>
-					<label for="burn-failed" class="text-xs sm:text-sm text-zinc-300 select-none cursor-pointer">
-						Destroy note immediately if an incorrect password is typed
-					</label>
-				</div>
-				<span class="text-xs text-orange-400/90 font-medium hidden sm:inline">Burn-on-fail</span>
+					SHOW PASSWORD
+				</label>
 			</div>
+		</div>
 
-			<!-- Submit Button -->
-			<button
-				type="submit"
-				disabled={isSubmitting}
-				class="w-full py-3.5 px-6 rounded-xl font-medium text-sm text-white bg-gradient-to-r from-orange-500 to-amber-600 hover:from-orange-600 hover:to-amber-700 shadow-lg shadow-orange-500/25 focus:outline-none focus:ring-2 focus:ring-orange-500/50 disabled:opacity-50 disabled:cursor-not-allowed transition duration-200 cursor-pointer flex items-center justify-center gap-2"
-			>
-				{#if isSubmitting}
-					<svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
-						<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-						<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-					</svg>
-					Deriving Keys &amp; Encrypting...
-				{:else}
-					<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-						<path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-					</svg>
-					Create BurnNote
-				{/if}
-			</button>
-		</form>
-	</div>
-{:else}
-	<NoteCreatedCard
-		noteUrl={createdNoteUrl}
-		password={createdPassword}
-		onReset={resetForm}
-	/>
+		<!-- Expiration & Burn Grid -->
+		<div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1.5rem;">
+			<div>
+				<label for="note-expiration" style="display:block;font-size:11px;color:#555;letter-spacing:0.1em;margin-bottom:6px;">
+					EXPIRES IN
+				</label>
+				<div style="position:relative;">
+					<select
+						id="note-expiration"
+						bind:value={expiresInSeconds}
+						style="width:100%;background:#0a0a0a;border:1px solid #333;color:#fff;padding:12px;font-family:inherit;font-size:12px;outline:none;cursor:pointer;box-sizing:border-box;"
+						onfocus={(e) => e.target.style.borderColor='#fff'}
+						onblur={(e) => e.target.style.borderColor='#333'}
+					>
+						<option value={600}>10 MIN</option>
+						<option value={3600}>1 HOUR</option>
+						<option value={86400}>24 HOURS</option>
+						<option value={604800}>7 DAYS</option>
+					</select>
+				</div>
+			</div>
+			<div style="display:flex;align-items:flex-end;">
+				<label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:11px;color:#555;letter-spacing:0.05em;padding-bottom:12px;">
+					<input
+						type="checkbox"
+						bind:checked={burnOnFailedAttempt}
+						style="cursor:pointer;"
+					/>
+					BURN ON WRONG PASSWORD
+				</label>
+			</div>
+		</div>
+
+		<!-- Submit -->
+		<button
+			type="submit"
+			disabled={isSubmitting}
+			style="width:100%;background:{isSubmitting ? '#111' : '#fff'};color:{isSubmitting ? '#555' : '#000'};border:2px solid {isSubmitting ? '#333' : '#fff'};padding:14px;cursor:{isSubmitting ? 'not-allowed' : 'pointer'};font-family:inherit;font-size:12px;font-weight:700;letter-spacing:0.15em;transition:all 0.15s;"
+		>
+			{isSubmitting ? 'ENCRYPTING...' : 'CREATE BURNNOTE →'}
+		</button>
+
+	</form>
+</div>
 {/if}
-

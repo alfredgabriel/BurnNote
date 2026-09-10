@@ -22,7 +22,13 @@ export async function POST({ request, getClientAddress }) {
 	}
 
 	try {
-		const body = await request.json();
+		let body;
+		try {
+			body = await request.json();
+		} catch {
+			return json({ error: 'Invalid JSON body' }, { status: 400 });
+		}
+
 		const {
 			tokenHash,
 			encryptedContent,

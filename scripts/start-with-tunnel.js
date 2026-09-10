@@ -1,10 +1,12 @@
 import { fork, exec } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, writeFileSync, unlinkSync } from 'node:fs';
 import path from 'node:path';
 import { startTunnel } from 'untun';
 import localtunnel from 'localtunnel';
 
 const PORT = parseInt(process.env.PORT || '3000', 10);
+const ROOT = path.resolve('.');
+const SENTINEL = path.join(ROOT, '.burnnote-ready');
 
 async function checkUrlReady(url, maxRetries = 25, delayMs = 1000) {
 	for (let i = 0; i < maxRetries; i++) {
@@ -25,49 +27,47 @@ async function main() {
 	// 1. Check if production build exists; if not, build it
 	if (!existsSync(path.resolve('./build/index.js'))) {
 		await new Promise((resolve, reject) => {
-			exec('npm run build', (err, stdout, stderr) => {
+			exec('npm run build', (err) => {
 				if (err) return reject(err);
-				resolve(stdout);
+				resolve();
 			});
 		});
 	}
 
-	// 2. Start the BurnNote local server
-	const fs = await import('node:fs');
-	fs.writeFileSync(path.resolve('.burnnote.pid'), String(process.pid));
+	// 2. Write our PID for clean stop
+	writeFileSync(path.join(ROOT, '.burnnote.pid'), String(process.pid));
 
-	const serverEnv = {
-		...process.env,
-		PORT: String(PORT),
-		NODE_ENV: 'production'
-	};
-
+	// 3. Start the BurnNote local server
 	const serverProcess = fork(path.resolve('./build/index.js'), [], {
-		env: serverEnv,
-		stdio: 'ignore' // Clean background execution
+		env: {
+			...process.env,
+			PORT: String(PORT),
+			NODE_ENV: 'production'
+		},
+		stdio: 'ignore'
 	});
 
 	// Wait for local server readiness
 	await checkUrlReady(`http://localhost:${PORT}`);
 
-	// 3. Establish public tunnel without prompting
+	// 4. Establish public tunnel without prompting
 	let publicUrl = '';
 
 	try {
-		// Cloudflare tunnel with automatic agreement acceptance
+		// Cloudflare tunnel
 		const tunnel = await startTunnel({
 			url: `http://localhost:${PORT}`,
 			acceptCloudflareNotice: true
 		});
 		publicUrl = await tunnel.getURL();
 
-		// Wait for Cloudflare global DNS propagation so user never gets NXDOMAIN
+		// Wait for DNS propagation
 		const isReady = await checkUrlReady(publicUrl, 20, 1000);
 		if (!isReady) {
 			throw new Error('Cloudflare DNS propagation timeout');
 		}
 	} catch {
-		// Fallback to localtunnel if Cloudflare is unreachable
+		// Fallback to localtunnel
 		try {
 			const lt = await localtunnel({ port: PORT });
 			publicUrl = lt.url;
@@ -77,7 +77,16 @@ async function main() {
 		}
 	}
 
-	// 4. Open browser to the verified, active public URL
+	// 5. Signal the splash screen to close
+	writeFileSync(SENTINEL, 'ready');
+
+	// 6. Small delay to let HTA catch the sentinel, then open browser
+	await new Promise((r) => setTimeout(r, 600));
+
+	// Clean up sentinel if HTA hasn't already
+	try { unlinkSync(SENTINEL); } catch {}
+
+	// Open browser
 	if (process.platform === 'win32') {
 		exec(`start ${publicUrl}`);
 	} else if (process.platform === 'darwin') {
@@ -86,15 +95,9 @@ async function main() {
 		exec(`xdg-open ${publicUrl}`);
 	}
 
-	// Keep parent process alive to manage child server process
-	process.on('SIGINT', () => {
-		serverProcess.kill();
-		process.exit(0);
-	});
-	process.on('SIGTERM', () => {
-		serverProcess.kill();
-		process.exit(0);
-	});
+	// Keep alive for signal handling
+	process.on('SIGINT', () => { serverProcess.kill(); process.exit(0); });
+	process.on('SIGTERM', () => { serverProcess.kill(); process.exit(0); });
 }
 
 main().catch(() => {
