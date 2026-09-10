@@ -9,6 +9,11 @@
  * - Conditional HSTS for HTTPS connections
  */
 
+import { startExpiredNotesCleaner } from '$lib/server/cleanup.js';
+
+// Start the background expired notes sweeper on server startup
+startExpiredNotesCleaner();
+
 export async function handle({ event, resolve }) {
 	const response = await resolve(event);
 
