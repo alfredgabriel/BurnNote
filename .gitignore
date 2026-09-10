@@ -21,6 +21,7 @@ Thumbs.db
 # IDE & Editor
 .vscode/
 .idea/
+.burnnote.pid
 
 # Vite
 vite.config.js.timestamp-*

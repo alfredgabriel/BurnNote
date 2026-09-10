@@ -6,26 +6,36 @@ import localtunnel from 'localtunnel';
 
 const PORT = parseInt(process.env.PORT || '3000', 10);
 
-async function main() {
-	console.log('\n🔥 Iniciando BurnNote con túnel seguro...\n');
+async function checkUrlReady(url, maxRetries = 25, delayMs = 1000) {
+	for (let i = 0; i < maxRetries; i++) {
+		try {
+			const res = await fetch(url, { signal: AbortSignal.timeout(3000) });
+			if (res.status === 200 || res.status === 304 || res.status === 404) {
+				return true;
+			}
+		} catch {
+			// DNS propagating or server still booting
+		}
+		await new Promise((r) => setTimeout(r, delayMs));
+	}
+	return false;
+}
 
+async function main() {
 	// 1. Check if production build exists; if not, build it
 	if (!existsSync(path.resolve('./build/index.js'))) {
-		console.log('📦 Primera ejecución: Compilando la aplicación (solo tardará unos segundos)...');
 		await new Promise((resolve, reject) => {
-			const buildProcess = exec('npm run build', (err, stdout, stderr) => {
-				if (err) {
-					console.error(stderr);
-					return reject(err);
-				}
+			exec('npm run build', (err, stdout, stderr) => {
+				if (err) return reject(err);
 				resolve(stdout);
 			});
 		});
-		console.log('✅ Compilación completada con éxito.');
 	}
 
-	// 2. Start the BurnNote server
-	console.log(`🚀 Arrancando servidor local en el puerto ${PORT}...`);
+	// 2. Start the BurnNote local server
+	const fs = await import('node:fs');
+	fs.writeFileSync(path.resolve('.burnnote.pid'), String(process.pid));
+
 	const serverEnv = {
 		...process.env,
 		PORT: String(PORT),
@@ -34,62 +44,59 @@ async function main() {
 
 	const serverProcess = fork(path.resolve('./build/index.js'), [], {
 		env: serverEnv,
-		stdio: 'inherit'
+		stdio: 'ignore' // Clean background execution
 	});
 
-	// Wait 1.5s for the server to be listening
-	await new Promise((r) => setTimeout(r, 1500));
+	// Wait for local server readiness
+	await checkUrlReady(`http://localhost:${PORT}`);
 
-	// 3. Establish public tunnel
-	console.log('🌐 Creando túnel público seguro con HTTPS...');
+	// 3. Establish public tunnel without prompting
 	let publicUrl = '';
 
 	try {
-		// Attempt 1: Cloudflare Tunnel via untun (fastest, no interstitial screen)
-		const tunnel = await startTunnel({ url: `http://localhost:${PORT}` });
+		// Cloudflare tunnel with automatic agreement acceptance
+		const tunnel = await startTunnel({
+			url: `http://localhost:${PORT}`,
+			acceptCloudflareNotice: true
+		});
 		publicUrl = await tunnel.getURL();
-	} catch (err) {
-		console.warn('⚠️ Cloudflare tunnel falló, intentando túnel alternativo...');
+
+		// Wait for Cloudflare global DNS propagation so user never gets NXDOMAIN
+		const isReady = await checkUrlReady(publicUrl, 20, 1000);
+		if (!isReady) {
+			throw new Error('Cloudflare DNS propagation timeout');
+		}
+	} catch {
+		// Fallback to localtunnel if Cloudflare is unreachable
 		try {
-			// Attempt 2: localtunnel fallback
 			const lt = await localtunnel({ port: PORT });
 			publicUrl = lt.url;
-		} catch (ltErr) {
-			console.error('❌ No se pudo crear el túnel automáticamente:', ltErr.message);
+			await checkUrlReady(publicUrl, 10, 1000);
+		} catch {
 			publicUrl = `http://localhost:${PORT}`;
 		}
 	}
 
-	// 4. Display banner
-	console.log('\n=============================================================');
-	console.log('   🔥 BURNNOTE ESTÁ FUNCIONANDO Y LISTO PARA COMPARTIR');
-	console.log('=============================================================');
-	console.log(`\n👉 ENLACE PÚBLICO (Cualquiera en el mundo puede abrirlo):`);
-	console.log(`   \x1b[32m\x1b[1m${publicUrl}\x1b[0m\n`);
-	console.log(`🏠 Enlace local (solo para ti):`);
-	console.log(`   http://localhost:${PORT}\n`);
-	console.log('=============================================================');
-	console.log('💡 Cuando crees una nota aquí, el enlace que generes');
-	console.log('   lo podrá abrir cualquier amigo desde su casa o móvil.');
-	console.log('=============================================================\n');
-
-	// 5. Open in default browser on Windows
+	// 4. Open browser to the verified, active public URL
 	if (process.platform === 'win32') {
 		exec(`start ${publicUrl}`);
+	} else if (process.platform === 'darwin') {
+		exec(`open ${publicUrl}`);
+	} else {
+		exec(`xdg-open ${publicUrl}`);
 	}
 
-	// Handle exit signals
+	// Keep parent process alive to manage child server process
 	process.on('SIGINT', () => {
-		serverProcess.kill('SIGINT');
+		serverProcess.kill();
 		process.exit(0);
 	});
 	process.on('SIGTERM', () => {
-		serverProcess.kill('SIGTERM');
+		serverProcess.kill();
 		process.exit(0);
 	});
 }
 
-main().catch((err) => {
-	console.error('Error al iniciar BurnNote con túnel:', err);
+main().catch(() => {
 	process.exit(1);
 });
