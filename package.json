@@ -9,7 +9,8 @@
 		"preview": "vite preview",
 		"prepare": "svelte-kit sync || echo ''",
 		"test:unit": "vitest",
-		"test": "npm run test:unit -- --run"
+		"test": "npm run test:unit -- --run",
+		"start:tunnel": "node scripts/start-with-tunnel.js"
 	},
 	"devDependencies": {
 		"@sveltejs/adapter-node": "^5.5.4",
@@ -23,6 +24,8 @@
 	},
 	"dependencies": {
 		"better-sqlite3": "^13.0.3",
-		"dotenv": "^17.4.2"
+		"dotenv": "^17.4.2",
+		"localtunnel": "^2.0.2",
+		"untun": "^0.2.2"
 	}
 }
