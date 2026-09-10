@@ -1,5 +1,7 @@
 <script>
 	import { encryptNote, generateSecurePassword } from '$lib/crypto/noteCrypto.js';
+	import NoteCreatedCard from '$lib/components/NoteCreatedCard.svelte';
+	import SecurityBadge from '$lib/components/SecurityBadge.svelte';
 
 	let content = $state('');
 	let password = $state('');
@@ -252,89 +254,10 @@
 		</form>
 	</div>
 {:else}
-	<!-- Note Created Success View (Step 11) -->
-	<div class="space-y-6">
-		<div class="text-center space-y-2">
-			<div class="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-emerald-950/60 border border-emerald-500/30 text-emerald-400 mb-2">
-				<svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-					<path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
-				</svg>
-			</div>
-			<h1 class="text-2xl sm:text-3xl font-extrabold tracking-tight text-white">
-				Your BurnNote is ready
-			</h1>
-			<p class="text-zinc-400 text-sm max-w-md mx-auto">
-				Share this link and the password with your recipient. Once opened or if an incorrect password is entered, it will self-destruct permanently.
-			</p>
-		</div>
-
-		<div class="bg-[#121215] border border-zinc-800 rounded-2xl p-6 sm:p-8 shadow-2xl space-y-6">
-			<!-- Link Box -->
-			<div class="space-y-2">
-				<label for="created-link-input" class="text-xs font-semibold uppercase tracking-wider text-zinc-400">
-					One-Time Secret Link
-				</label>
-				<div class="flex gap-2">
-					<input
-						id="created-link-input"
-						type="text"
-						readonly
-						value={createdNoteUrl}
-						class="w-full bg-[#18181b] border border-zinc-800 rounded-xl px-4 py-2.5 text-sm font-mono text-zinc-200 select-all focus:outline-none"
-					/>
-					<button
-						type="button"
-						onclick={() => copyToClipboard(createdNoteUrl)}
-						class="px-5 py-2.5 rounded-xl bg-orange-600 hover:bg-orange-500 text-white font-medium text-xs tracking-wide uppercase transition duration-150 flex-shrink-0 cursor-pointer shadow-lg shadow-orange-600/20"
-					>
-						{copySuccess ? 'Copied!' : 'Copy Link'}
-					</button>
-				</div>
-			</div>
-
-			<!-- Password Box -->
-			<div class="space-y-2">
-				<label for="created-password-input" class="text-xs font-semibold uppercase tracking-wider text-zinc-400">
-					Note Password
-				</label>
-				<div class="flex gap-2">
-					<input
-						id="created-password-input"
-						type="text"
-						readonly
-						value={createdPassword}
-						class="w-full bg-[#18181b] border border-zinc-800 rounded-xl px-4 py-2.5 text-sm font-mono text-amber-300 font-bold select-all focus:outline-none"
-					/>
-					<button
-						type="button"
-						onclick={() => copyToClipboard(createdPassword, true)}
-						class="px-5 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 font-medium text-xs tracking-wide uppercase transition duration-150 flex-shrink-0 cursor-pointer"
-					>
-						{copyPasswordSuccess ? 'Copied!' : 'Copy'}
-					</button>
-				</div>
-			</div>
-
-			<!-- Security Warning Box -->
-			<div class="p-4 rounded-xl bg-amber-950/30 border border-amber-800/40 text-amber-300 text-xs sm:text-sm space-y-1.5">
-				<div class="font-semibold flex items-center gap-2 text-amber-200">
-					<svg class="w-4 h-4 text-amber-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-					</svg>
-					Save the link and password immediately
-				</div>
-				<p class="text-amber-300/80 leading-relaxed">
-					For security, we do not keep a copy of your password or plaintext note. Once you leave this page, it cannot be recovered.
-				</p>
-			</div>
-
-			<button
-				type="button"
-				onclick={resetForm}
-				class="w-full py-3 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 font-medium text-xs tracking-wider uppercase transition cursor-pointer"
-			>
-				&larr; Create Another BurnNote
-			</button>
-		</div>
-	</div>
+	<NoteCreatedCard
+		noteUrl={createdNoteUrl}
+		password={createdPassword}
+		onReset={resetForm}
+	/>
 {/if}
+
